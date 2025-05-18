@@ -1,0 +1,16 @@
+config/
+  db.js               # MongoDB connection setup
+  rabbitmq.js         # RabbitMQ connection & channel setup
+controllers/
+  notificationController.js  # API request handlers
+models/
+  Notification.js     # Mongoose schema for notifications
+routes/
+  notificationRoutes.js      # Express routes
+services/
+  notificationService.js    # DB operations on notifications
+  queueService.js           # RabbitMQ message sending helper
+worker.js              # RabbitMQ consumer that processes notifications
+app.js                 # Express app entry point
+.env                   # Environment variables
+package.json           # Project dependencies
