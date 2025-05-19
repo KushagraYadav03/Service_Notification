@@ -1,6 +1,7 @@
 config/
   db.js               # MongoDB connection setup
   rabbitmq.js         # RabbitMQ connection & channel setup
+  email.js            #For email nodemailer installation and creation of transporter
 controllers/
   notificationController.js  # API request handlers
 models/
