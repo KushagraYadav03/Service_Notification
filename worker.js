@@ -1,72 +1,66 @@
+require("dotenv").config();
 const mongoose = require("mongoose");
-const dotenv = require("dotenv");
-const { connectRabbitMQ, getChannel } = require("./config/rabbitmq");
-const Notification = require("./models/Notification");
+const amqp = require("amqplib");
+const nodemailer = require("nodemailer");
+const Notification = require("./models/notification");
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log(" Connected to MongoDB Atlas"))
+  .catch((err) => console.error("MongoDB connection error:", err));
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
 
-dotenv.config();
-
-async function connectDB() {
+async function sendEmail(userEmail, message) {
   try {
-    await mongoose.connect(process.env.MONGO_URI);
-    console.log(" MongoDB connected in Worker");
-  } catch (error) {
-    console.error(" MongoDB connection error:", error);
-    process.exit(1);
+    const info = await transporter.sendMail({
+      from: `"Notifier" <${process.env.EMAIL_USER}>`,
+      to: userEmail,
+      subject: "New Notification",
+      text: message,
+    });
+    console.log(` Email sent: ${info.messageId}`);
+  } catch (err) {
+    console.error(" Error sending email:", err);
   }
 }
 
 async function startWorker() {
-  await connectDB();
-  await connectRabbitMQ();
+  try {
+    const connection = await amqp.connect(process.env.RABBITMQ_URL);
+    const channel = await connection.createChannel();
 
-  const channel = getChannel();
+    const queue = "notifications";
+    await channel.assertQueue(queue, { durable: true });
 
-  channel.consume("notificationQueue", async (msg) => {
-    if (msg !== null) {
-      const { notificationId } = JSON.parse(msg.content.toString());
+    console.log("📥 Notification worker started and listening to queue");
 
-      try {
-        const notification = await Notification.findById(notificationId);
-        if (!notification) throw new Error("Notification not found");
+    channel.consume(queue, async (msg) => {
+      if (msg !== null) {
+        const notification = JSON.parse(msg.content.toString());
+        console.log(`📨 Processing notification for user: ${notification.userId}`);
 
-        console.log(
-          `Sending ${notification.type} notification to user ${notification.userId}: ${notification.message}`
-        );
-
-        const success = Math.random() > 0.2;
-
-        if (success) {
-          notification.status = "sent";
-          await notification.save();
-          channel.ack(msg);
-        } else {
-          notification.status = "failed";
-          notification.retryCount = (notification.retryCount || 0) + 1;
-
-          if (notification.retryCount < 3) {
-            await notification.save();
-            console.log(`Retrying notification ${notification._id} attempt ${notification.retryCount}`);
-
-            setTimeout(() => {
-              channel.sendToQueue("notificationQueue", Buffer.from(JSON.stringify({ notificationId })), {
-                persistent: true,
-              });
-              channel.ack(msg);
-            }, 5000);
-          } else {
-            await notification.save();
-            channel.ack(msg);
-            console.log(`Failed notification ${notification._id} after 3 attempts`);
+        try {
+          if (notification.type === "email") {
+            await sendEmail(notification.userId, notification.message);
           }
-        }
-      } catch (err) {
-        console.error("Worker error:", err);
-        channel.nack(msg);
-      }
-    }
-  });
+          await Notification.findOneAndUpdate(
+            { _id: notification._id },
+            { status: "sent" }
+          );
 
-  console.log(" Notification worker started and listening to queue");
+          channel.ack(msg);
+        } catch (err) {
+          console.error(" Error processing notification:", err);
+        }
+      }
+    });
+  } catch (err) {
+    console.error(" Worker error:", err);
+  }
 }
 
 startWorker();

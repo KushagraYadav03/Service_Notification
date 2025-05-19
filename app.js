@@ -11,10 +11,8 @@ const app = express();
 
 app.use(express.json());
 
-// Mount router at /notifications
-app.use("/notifications", require("./routes/notificationRoutes"));
 
-// Connect RabbitMQ then start server
+app.use("/notifications", require("./routes/notificationRoutes"));
 connectRabbitMQ().then(() => {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => console.log(` Server running on port ${PORT}`));
